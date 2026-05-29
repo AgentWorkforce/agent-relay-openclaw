@@ -5,7 +5,7 @@ import { mkdir } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { createServer } from 'node:net';
 import { fileURLToPath } from 'node:url';
-import { AgentRelay } from '@agent-relay/sdk';
+import { AgentRelayClient } from '@agent-relay/sdk';
 
 import type { SpawnProvider, SpawnOptions, SpawnHandle } from './types.js';
 import { normalizeModelRef } from '../identity/model.js';
@@ -20,8 +20,8 @@ import { patchOpenClawDist, clearJitCache } from '../runtime/patch.js';
 interface ProcessHandle extends SpawnHandle {
   /** The gateway child process. */
   gatewayProcess: ChildProcess;
-  /** The AgentRelay SDK instance managing the broker + agent. */
-  relay: AgentRelay | null;
+  /** The managed driver client that owns the broker + agent boundary. */
+  relay: AgentRelayClient | null;
 }
 
 /**
@@ -50,7 +50,7 @@ async function findFreePort(): Promise<number> {
  *
  * Each spawn:
  *   1. Starts `openclaw gateway` on an OS-assigned free port
- *   2. Uses AgentRelay SDK to spawn a broker + bridge agent connected to the gateway
+ *   2. Uses the Agent Relay SDK to spawn a broker + bridge agent connected to the gateway
  */
 export class ProcessSpawnProvider implements SpawnProvider {
   private readonly handles = new Map<string, ProcessHandle>();
@@ -60,6 +60,10 @@ export class ProcessSpawnProvider implements SpawnProvider {
     const agentName = buildAgentName(workspaceId, options.name);
     const channels = options.channels?.length ? options.channels : ['general'];
     const gatewayToken = randomUUID().replace(/-/g, '').slice(0, 32);
+    const workspaceKey = options.workspaceKey ?? options.relayApiKey;
+    if (!workspaceKey) {
+      throw new Error('workspaceKey is required to spawn an OpenClaw agent');
+    }
 
     // Find a free port via OS allocation
     const port = await findFreePort();
@@ -147,13 +151,12 @@ export class ProcessSpawnProvider implements SpawnProvider {
       throw err;
     }
 
-    // Use AgentRelay SDK to spawn the broker + bridge agent.
-    // This replaces shelling out to `agent-relay broker-spawn --from-env`.
+    // Use the managed driver boundary to spawn the broker + bridge agent.
     const bridgePath = resolvePackageBridgePath();
-    let relay: AgentRelay | null = null;
+    let relay: AgentRelayClient | null = null;
 
     try {
-      relay = new AgentRelay({
+      relay = await AgentRelayClient.spawn({
         brokerName: agentName,
         channels,
         cwd: workspacePath,
@@ -165,13 +168,14 @@ export class ProcessSpawnProvider implements SpawnProvider {
           OPENCLAW_NAME: options.name,
           OPENCLAW_ROLE: options.role ?? 'general',
           OPENCLAW_MODEL: resolvedModel,
-          RELAY_API_KEY: options.relayApiKey,
+          RELAY_WORKSPACE_KEY: workspaceKey,
+          RELAY_API_KEY: workspaceKey,
           RELAY_BASE_URL: options.relayBaseUrl || 'https://api.relaycast.dev',
           BROKER_NO_REMOTE_SPAWN: '1',
         } as NodeJS.ProcessEnv,
       });
 
-      await relay.spawnAgent({
+      await relay.spawnPty({
         name: agentName,
         cli: 'node',
         args: [bridgePath],
@@ -180,12 +184,10 @@ export class ProcessSpawnProvider implements SpawnProvider {
       });
 
       relay.addListener('agentExited', (agent) => {
-        process.stderr.write(
-          `[spawn:${options.name}] Agent exited: ${agent.name} code=${agent.exitCode ?? 'none'}\n`
-        );
+        process.stderr.write(`[spawn:${options.name}] Agent exited: ${agent.name}\n`);
       });
     } catch (err) {
-      // If SDK broker spawn fails, clean up gateway and propagate
+      // If driver-managed spawn fails, clean up gateway and propagate.
       gatewayProcess.kill('SIGTERM');
       if (relay) {
         await relay.shutdown().catch(() => {});

@@ -1,7 +1,7 @@
 {
   "name": "@agent-relay/openclaw",
   "version": "7.1.1",
-  "description": "Relaycast bridge for OpenClaw — messaging, identity, runtime setup, and local spawning",
+  "description": "Agent Relay bridge for OpenClaw — messaging, identity, runtime setup, and local spawning",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

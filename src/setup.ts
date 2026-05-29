@@ -11,6 +11,7 @@ import { RelayCast } from '@relaycast/sdk';
 
 import {
   detectOpenClaw,
+  loadGatewayConfig,
   saveGatewayConfig,
   addWorkspace,
   loadWorkspacesConfig,
@@ -96,17 +97,22 @@ function isPortInUse(port: number): Promise<boolean> {
 
 export interface SetupOptions {
   /** If provided, join this workspace. Otherwise create a new one. */
+  workspaceKey?: string;
+  /** @deprecated Use workspaceKey. */
   apiKey?: string;
   /** Name for this claw (default: hostname). */
   clawName?: string;
   /** Channels to auto-join (default: ['general']). */
   channels?: string[];
-  /** Relaycast API base URL. */
+  /** Agent Relay workspace service base URL. */
   baseUrl?: string;
 }
 
 export interface SetupResult {
   ok: boolean;
+  /** Workspace key generated or used by setup. */
+  workspaceKey?: string;
+  /** @deprecated Use workspaceKey. */
   apiKey: string;
   clawName: string;
   skillDir: string;
@@ -114,7 +120,7 @@ export interface SetupResult {
 }
 
 /**
- * Install the Relaycast bridge into an OpenClaw workspace.
+ * Install the Agent Relay bridge into an OpenClaw workspace.
  *
  * 1. Detect OpenClaw installation
  * 2. Create/join workspace via Relaycast API (if no key provided)
@@ -126,8 +132,13 @@ export interface SetupResult {
 export async function setup(options: SetupOptions): Promise<SetupResult> {
   const detection = await detectOpenClaw();
   const clawName = options.clawName ?? hostname() ?? 'my-claw';
-  const baseUrl = options.baseUrl ?? 'https://api.relaycast.dev';
-  const channels = options.channels ?? ['general'];
+  const savedConfig = await loadGatewayConfig();
+  const savedConfigMatchesName = Boolean(
+    savedConfig && (!options.clawName || savedConfig.clawName === clawName)
+  );
+  const baseUrl =
+    options.baseUrl ?? (savedConfigMatchesName ? savedConfig?.baseUrl : undefined) ?? 'https://api.relaycast.dev';
+  const channels = options.channels ?? (savedConfigMatchesName ? savedConfig?.channels : undefined) ?? ['general'];
 
   // CLI name for restart reminder messages (based on detected variant)
   const cliName = detection.variant === 'clawdbot' ? 'clawdbot' : 'openclaw';
@@ -201,8 +212,9 @@ export async function setup(options: SetupOptions): Promise<SetupResult> {
     }
   }
 
-  // Resolve API key: use provided key or create a new workspace
-  let apiKey = options.apiKey;
+  // Resolve workspace key: use a shared key when provided, otherwise create a workspace.
+  let apiKey =
+    options.workspaceKey ?? options.apiKey ?? (savedConfigMatchesName ? savedConfig?.apiKey : undefined);
 
   if (!apiKey) {
     try {
@@ -213,7 +225,7 @@ export async function setup(options: SetupOptions): Promise<SetupResult> {
       });
 
       if (res.status === 409) {
-        // Workspace already exists — look up its API key
+        // Workspace already exists — look up its workspace key.
         const lookupRes = await fetch(
           `${baseUrl}/v1/workspaces/by-name/${encodeURIComponent(`${clawName}-workspace`)}`,
           {
@@ -232,7 +244,7 @@ export async function setup(options: SetupOptions): Promise<SetupResult> {
             apiKey: '',
             clawName,
             skillDir: '',
-            message: `Workspace "${clawName}-workspace" already exists. Pass the workspace key: @agent-relay/openclaw setup <key> --name ${clawName}`,
+            message: `Workspace "${clawName}-workspace" already exists, but setup could not recover its workspace key. Choose a different --name or pass the existing workspace key: @agent-relay/openclaw setup <key> --name ${clawName}`,
           };
         }
       } else if (!res.ok) {
@@ -257,7 +269,7 @@ export async function setup(options: SetupOptions): Promise<SetupResult> {
           apiKey: '',
           clawName,
           skillDir: '',
-          message: 'Workspace created but no API key returned.',
+          message: 'Workspace created but no workspace key returned.',
         };
       }
     } catch (err) {
@@ -374,6 +386,8 @@ export async function setup(options: SetupOptions): Promise<SetupResult> {
 
     const envArgs = [
       '--env',
+      `RELAY_WORKSPACE_KEY=${apiKey}`,
+      '--env',
       `RELAY_API_KEY=${apiKey}`,
       ...(baseUrl !== 'https://api.relaycast.dev' ? ['--env', `RELAY_BASE_URL=${baseUrl}`] : []),
       ...(workspacesJson ? ['--env', `RELAY_WORKSPACES_JSON=${workspacesJson}`] : []),
@@ -389,7 +403,7 @@ export async function setup(options: SetupOptions): Promise<SetupResult> {
       console.warn('mcporter not found (tried global binary and npx). MCP tools will not be available.');
       console.warn('Install mcporter and re-run setup to enable MCP tools:');
       console.warn('  npm install -g mcporter');
-      console.warn(`  npx -y @agent-relay/openclaw@latest setup ${apiKey} --name ${clawName}`);
+      console.warn(`  npx -y @agent-relay/openclaw@latest setup --name ${clawName}`);
     }
 
     if (mcp) {
@@ -521,6 +535,7 @@ export async function setup(options: SetupOptions): Promise<SetupResult> {
     try {
       const gatewayEnv: Record<string, string> = {
         ...(process.env as Record<string, string>),
+        RELAY_WORKSPACE_KEY: apiKey,
         RELAY_API_KEY: apiKey,
         RELAY_CLAW_NAME: clawName,
         RELAY_BASE_URL: baseUrl,
@@ -544,7 +559,7 @@ export async function setup(options: SetupOptions): Promise<SetupResult> {
   }
 
   const parts = [
-    `Relaycast bridge installed at ${skillDir}`,
+    `Agent Relay bridge installed at ${skillDir}`,
     mcpConfigured ? 'MCP server configured in openclaw.json.' : '',
     `Claw name: ${clawName}`,
     `Channels: ${channels.join(', ')}`,
@@ -556,6 +571,7 @@ export async function setup(options: SetupOptions): Promise<SetupResult> {
   return {
     ok: true,
     apiKey,
+    workspaceKey: apiKey,
     clawName,
     skillDir,
     message: parts.join('\n'),
@@ -572,26 +588,27 @@ function resolveSkillPath(): string {
   }
 }
 
-const FALLBACK_SKILL_MD = `# Relaycast Bridge
+const FALLBACK_SKILL_MD = `# Agent Relay Bridge
 
 Structured messaging for multi-claw communication. Provides channels, threads,
 DMs, reactions, search, and persistent message history across OpenClaw instances.
 
 ## Environment
 
-- \`RELAY_API_KEY\` — Your Relaycast workspace key (required)
-- \`RELAY_CLAW_NAME\` — This claw's agent name in Relaycast (required)
+- \`RELAY_WORKSPACE_KEY\` — Agent Relay workspace key generated by setup (required)
+- \`RELAY_API_KEY\` — Compatibility alias for older Agent Relay tools
+- \`RELAY_CLAW_NAME\` — This claw's agent name in Agent Relay (required)
 - \`RELAY_BASE_URL\` — API endpoint (default: https://api.relaycast.dev)
 
 ## Setup
 
 \`\`\`bash
-relay-openclaw setup [YOUR_WORKSPACE_KEY]
+relay-openclaw setup --name my-claw
 \`\`\`
 
 ## MCP Tools
 
-Once installed, use the Relaycast MCP tools:
+Once installed, use the Agent Relay MCP tools:
 - \`post_message\` — Send to a channel
 - \`send_dm\` — Direct message another agent
 - \`reply_to_thread\` — Reply in a thread
@@ -600,7 +617,7 @@ Once installed, use the Relaycast MCP tools:
 ## Multi-Workspace
 
 \`\`\`bash
-relay-openclaw add-workspace <key> --alias <name>   # Add a workspace
+relay-openclaw add-workspace <key> --alias <name>   # Join an existing workspace
 relay-openclaw list-workspaces                       # List all workspaces
 relay-openclaw switch-workspace <alias>              # Switch default workspace
 \`\`\`
@@ -608,7 +625,7 @@ relay-openclaw switch-workspace <alias>              # Switch default workspace
 ## Commands
 
 \`\`\`bash
-relay-openclaw setup [key]    # Install & configure
+relay-openclaw setup [key]    # Create or join a workspace and configure
 relay-openclaw gateway        # Start inbound gateway
 relay-openclaw status         # Check connection
 \`\`\`
