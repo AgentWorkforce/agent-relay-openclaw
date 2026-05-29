@@ -5,7 +5,7 @@ import { mkdir } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { createServer } from 'node:net';
 import { fileURLToPath } from 'node:url';
-import { AgentRelayClient } from '@agent-relay/runtime';
+import { AgentRelayClient } from '@agent-relay/sdk';
 
 import type { SpawnProvider, SpawnOptions, SpawnHandle } from './types.js';
 import { normalizeModelRef } from '../identity/model.js';
@@ -50,7 +50,7 @@ async function findFreePort(): Promise<number> {
  *
  * Each spawn:
  *   1. Starts `openclaw gateway` on an OS-assigned free port
- *   2. Uses AgentRelay SDK to spawn a broker + bridge agent connected to the gateway
+ *   2. Uses the Agent Relay SDK to spawn a broker + bridge agent connected to the gateway
  */
 export class ProcessSpawnProvider implements SpawnProvider {
   private readonly handles = new Map<string, ProcessHandle>();

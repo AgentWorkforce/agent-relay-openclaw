@@ -1,4 +1,4 @@
-import type { AgentRelayClient, SendMessageInput } from '@agent-relay/runtime';
+import type { AgentRelayClient, SendMessageInput } from '@agent-relay/sdk';
 
 import { DEFAULT_OPENCLAW_GATEWAY_PORT, type InboundMessage, type DeliveryResult } from './types.js';
 

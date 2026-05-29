@@ -16,7 +16,7 @@ import {
 } from 'node:http';
 import { join } from 'node:path';
 
-import type { SendMessageInput } from '@agent-relay/runtime';
+import type { SendMessageInput } from '@agent-relay/sdk';
 import { RelayCast, type AgentClient } from '@relaycast/sdk';
 import type {
   MessageCreatedEvent,

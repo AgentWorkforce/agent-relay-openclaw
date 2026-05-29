@@ -11,6 +11,7 @@ import { RelayCast } from '@relaycast/sdk';
 
 import {
   detectOpenClaw,
+  loadGatewayConfig,
   saveGatewayConfig,
   addWorkspace,
   loadWorkspacesConfig,
@@ -131,8 +132,13 @@ export interface SetupResult {
 export async function setup(options: SetupOptions): Promise<SetupResult> {
   const detection = await detectOpenClaw();
   const clawName = options.clawName ?? hostname() ?? 'my-claw';
-  const baseUrl = options.baseUrl ?? 'https://api.relaycast.dev';
-  const channels = options.channels ?? ['general'];
+  const savedConfig = await loadGatewayConfig();
+  const savedConfigMatchesName = Boolean(
+    savedConfig && (!options.clawName || savedConfig.clawName === clawName)
+  );
+  const baseUrl =
+    options.baseUrl ?? (savedConfigMatchesName ? savedConfig?.baseUrl : undefined) ?? 'https://api.relaycast.dev';
+  const channels = options.channels ?? (savedConfigMatchesName ? savedConfig?.channels : undefined) ?? ['general'];
 
   // CLI name for restart reminder messages (based on detected variant)
   const cliName = detection.variant === 'clawdbot' ? 'clawdbot' : 'openclaw';
@@ -207,7 +213,8 @@ export async function setup(options: SetupOptions): Promise<SetupResult> {
   }
 
   // Resolve workspace key: use a shared key when provided, otherwise create a workspace.
-  let apiKey = options.workspaceKey ?? options.apiKey;
+  let apiKey =
+    options.workspaceKey ?? options.apiKey ?? (savedConfigMatchesName ? savedConfig?.apiKey : undefined);
 
   if (!apiKey) {
     try {
