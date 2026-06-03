@@ -394,14 +394,14 @@ export async function setup(options: SetupOptions): Promise<SetupResult> {
 
     if (mcp) {
       try {
-        // Register relaycast messaging MCP server
+        // Register the Agent Relay messaging MCP server
         execFileSync(
           mcp.cmd,
           [
             ...mcp.prefix,
             'config',
             'add',
-            'relaycast',
+            'agent-relay',
             '--command',
             'npx',
             '--arg',
@@ -412,7 +412,7 @@ export async function setup(options: SetupOptions): Promise<SetupResult> {
             '--scope',
             'home',
             '--description',
-            'Relaycast messaging MCP server',
+            'Agent Relay messaging MCP server',
           ],
           { stdio: 'pipe' }
         );
@@ -460,11 +460,14 @@ export async function setup(options: SetupOptions): Promise<SetupResult> {
           const agentToken = registered.token;
 
           if (agentToken) {
-            // Reconfigure mcporter with the agent token so subsequent calls are authenticated
-            try {
-              execFileSync(mcp.cmd, [...mcp.prefix, 'config', 'remove', 'relaycast'], { stdio: 'pipe' });
-            } catch {
-              /* may not exist */
+            // Reconfigure mcporter with the agent token so subsequent calls are
+            // authenticated. Also drop any legacy `relaycast` entry from earlier setups.
+            for (const staleKey of ['agent-relay', 'relaycast']) {
+              try {
+                execFileSync(mcp.cmd, [...mcp.prefix, 'config', 'remove', staleKey], { stdio: 'pipe' });
+              } catch {
+                /* may not exist */
+              }
             }
 
             execFileSync(
@@ -473,7 +476,7 @@ export async function setup(options: SetupOptions): Promise<SetupResult> {
                 ...mcp.prefix,
                 'config',
                 'add',
-                'relaycast',
+                'agent-relay',
                 '--command',
                 'npx',
                 '--arg',
@@ -486,7 +489,7 @@ export async function setup(options: SetupOptions): Promise<SetupResult> {
                 '--scope',
                 'home',
                 '--description',
-                'Relaycast messaging MCP server',
+                'Agent Relay messaging MCP server',
               ],
               { stdio: 'pipe' }
             );
