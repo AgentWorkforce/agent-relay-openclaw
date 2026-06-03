@@ -171,13 +171,15 @@ export class ProcessSpawnProvider implements SpawnProvider {
         } as NodeJS.ProcessEnv,
       });
 
-      await relay.spawnAgent({
-        name: agentName,
-        cli: 'node',
-        args: [bridgePath],
-        channels,
-        task: options.systemPrompt ? `${options.systemPrompt}\n\n${identityTask}` : identityTask,
-      });
+      await relay.spawn(
+        agentName,
+        'node',
+        options.systemPrompt ? `${options.systemPrompt}\n\n${identityTask}` : identityTask,
+        {
+          args: [bridgePath],
+          channels,
+        }
+      );
 
       relay.addListener('agentExited', (agent) => {
         process.stderr.write(

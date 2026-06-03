@@ -74,6 +74,14 @@ function resolveMcporter(): { cmd: string; prefix: string[] } {
   }
 }
 
+function removeMcpConfig(mcp: { cmd: string; prefix: string[] }, key: string): void {
+  try {
+    execFileSync(mcp.cmd, [...mcp.prefix, 'config', 'remove', key], { stdio: 'pipe' });
+  } catch {
+    /* may not exist */
+  }
+}
+
 /** Check if a port is already in use by attempting a TCP connection. */
 function isPortInUse(port: number): Promise<boolean> {
   return new Promise((resolve) => {
@@ -272,7 +280,7 @@ export async function setup(options: SetupOptions): Promise<SetupResult> {
   }
 
   // Agent registration is done after mcporter is configured (see below),
-  // since the register tool is accessed via mcporter call relaycast.register.
+  // since the register tool is accessed via mcporter call agent-relay.register.
 
   // Install SKILL.md
   const skillDir = join(detection.workspaceDir, 'relaycast');
@@ -394,6 +402,12 @@ export async function setup(options: SetupOptions): Promise<SetupResult> {
 
     if (mcp) {
       try {
+        // Ensure setup is idempotent across the relaycast -> agent-relay MCP
+        // server rename and across repeated runs of the current version.
+        for (const staleKey of ['agent-relay', 'relaycast']) {
+          removeMcpConfig(mcp, staleKey);
+        }
+
         // Register the Agent Relay messaging MCP server
         execFileSync(
           mcp.cmd,
@@ -463,11 +477,7 @@ export async function setup(options: SetupOptions): Promise<SetupResult> {
             // Reconfigure mcporter with the agent token so subsequent calls are
             // authenticated. Also drop any legacy `relaycast` entry from earlier setups.
             for (const staleKey of ['agent-relay', 'relaycast']) {
-              try {
-                execFileSync(mcp.cmd, [...mcp.prefix, 'config', 'remove', staleKey], { stdio: 'pipe' });
-              } catch {
-                /* may not exist */
-              }
+              removeMcpConfig(mcp, staleKey);
             }
 
             execFileSync(
@@ -594,7 +604,7 @@ relay-openclaw setup [YOUR_WORKSPACE_KEY]
 
 ## MCP Tools
 
-Once installed, use the Relaycast MCP tools:
+Once installed, use the Agent Relay MCP tools:
 - \`post_message\` — Send to a channel
 - \`send_dm\` — Direct message another agent
 - \`reply_to_thread\` — Reply in a thread
