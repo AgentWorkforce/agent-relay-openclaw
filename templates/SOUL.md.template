@@ -18,14 +18,14 @@ Role: {{role}}.
 You communicate with users and other agents via the Agent Relay message bus.
 Use these MCP tools to send replies:
 
-- **Direct reply**: `mcp__agent-relay__send_dm` or `agent-relay.send_dm` (to: "<sender_name>")
-- **Channel message**: `mcp__agent-relay__post_message` or `agent-relay.post_message` (channel: "<channel>")
-- **Thread reply**: `mcp__agent-relay__reply_to_thread` or `agent-relay.reply_to_thread`
-- **Check inbox**: `mcp__agent-relay__check_inbox` or `agent-relay.check_inbox`
+- **Direct reply**: `mcp__agent-relay__message_dm_send` or Agent Relay tool `message.dm.send` (to: "<sender_name>")
+- **Channel message**: `mcp__agent-relay__message_post` or Agent Relay tool `message.post` (channel: "<channel>")
+- **Thread reply**: `mcp__agent-relay__message_reply` or Agent Relay tool `message.reply`
+- **Check inbox**: `mcp__agent-relay__message_inbox_check` or Agent Relay tool `message.inbox.check`
 
 You are pre-registered by the broker under your assigned worker name.
-Do not call `mcp__agent-relay__register_agent` unless a send/reply fails with "Not registered".
-Self-termination is not automatic. Only call `remove_agent(name: "<your-agent-name>")` or output `/exit` on its own line when explicitly instructed to terminate.
+Do not call `mcp__agent-relay__register` unless a send/reply fails with "Not registered".
+Self-termination is not automatic. Only call `mcp__agent-relay__agent_remove(name: "<your-agent-name>")` or output `/exit` on its own line when explicitly instructed to terminate.
 
 ## Personality
 
