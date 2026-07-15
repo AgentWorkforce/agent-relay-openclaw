@@ -1,4 +1,4 @@
-import type { AgentRelayClient, SendMessageInput } from '@agent-relay/sdk';
+import type { HarnessDriverClient, SendMessageInput } from '@agent-relay/harness-driver';
 
 import { DEFAULT_OPENCLAW_GATEWAY_PORT, type InboundMessage, type DeliveryResult } from './types.js';
 
@@ -8,14 +8,14 @@ import { DEFAULT_OPENCLAW_GATEWAY_PORT, type InboundMessage, type DeliveryResult
  * Primary: Agent Relay SDK sendMessage() via a shared, long-lived client
  * Fallback: OpenClaw OpenResponses API (POST /v1/responses) on localhost
  *
- * Callers should maintain a single shared AgentRelayClient instance and pass it
- * to every deliverMessage() call. Creating a client per message is wasteful and
- * was removed in favor of this shared-client pattern.
+ * Callers should maintain a single shared HarnessDriverClient instance and pass
+ * it to every deliverMessage() call. Creating a client per message is wasteful
+ * and was removed in favor of this shared-client pattern.
  */
 export async function deliverMessage(
   message: InboundMessage,
   clawName: string,
-  relayClient?: AgentRelayClient | null
+  relayClient?: HarnessDriverClient | null
 ): Promise<DeliveryResult> {
   const formattedText = `[relaycast:${message.channel}] @${message.from}: ${message.text}`;
 
