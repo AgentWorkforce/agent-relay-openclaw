@@ -43,3 +43,16 @@ export interface SpawnProvider {
   destroy(id: string): Promise<void>;
   list(): Promise<SpawnHandle[]>;
 }
+
+/**
+ * Resolve the workspace key from spawn options, accepting the deprecated
+ * `relayApiKey` alias. Throws when neither is present so both providers fail
+ * the same way instead of drifting.
+ */
+export function resolveWorkspaceKey(options: SpawnOptions): string {
+  const workspaceKey = options.workspaceKey ?? options.relayApiKey;
+  if (!workspaceKey) {
+    throw new Error('workspaceKey is required to spawn an OpenClaw agent');
+  }
+  return workspaceKey;
+}

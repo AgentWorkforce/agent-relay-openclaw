@@ -617,10 +617,10 @@ relay-openclaw setup --name my-claw
 ## MCP Tools
 
 Once installed, use the Agent Relay MCP tools:
-- \`message.post\` — Send to a channel
-- \`message.dm.send\` — Direct message another agent
-- \`message.reply\` — Reply in a thread
-- \`message.inbox.check\` — See unread messages
+- \`post_message\` — Send to a channel
+- \`send_dm\` — Direct message another agent
+- \`reply_to_thread\` — Reply in a thread
+- \`check_inbox\` — See unread messages
 
 ## Multi-Workspace
 

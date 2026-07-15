@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 
-import type { SpawnProvider, SpawnOptions, SpawnHandle } from './types.js';
+import { resolveWorkspaceKey, type SpawnProvider, type SpawnOptions, type SpawnHandle } from './types.js';
 import { normalizeModelRef } from '../identity/model.js';
 import { buildIdentityTask } from '../identity/contract.js';
 import { buildAgentName } from '../identity/naming.js';
@@ -164,10 +164,7 @@ export class DockerSpawnProvider implements SpawnProvider {
     const identityTask = buildIdentityTask(agentName, workspaceId, modelRef);
     const channels = options.channels?.length ? options.channels : ['general'];
     const gatewayToken = randomUUID().replace(/-/g, '').slice(0, 32);
-    const workspaceKey = options.workspaceKey ?? options.relayApiKey;
-    if (!workspaceKey) {
-      throw new Error('workspaceKey is required to spawn an OpenClaw agent');
-    }
+    const workspaceKey = resolveWorkspaceKey(options);
 
     const suffix = `${Date.now().toString(36)}-${randomUUID().slice(0, 8)}`;
     const containerName = `openclaw-${sanitizeContainerSegment(agentName)}-${suffix}`.slice(0, 63);

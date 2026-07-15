@@ -65,20 +65,36 @@ async function main() {
     env: process.env,
   });
 
-  await relay.spawnPty({ name, cli, args, channels, task, cwd });
-
-  // Keep the process alive until the broker exits; forward signals as shutdown.
-  relay.onBrokerExit((info) => {
-    const code = typeof info?.code === 'number' ? info.code : 0;
+  // Single-shot exit guard: overlapping signals or a broker-exit racing a
+  // signal-triggered shutdown must not call process.exit twice.
+  let exiting = false;
+  const exit = (code) => {
+    if (exiting) return;
+    exiting = true;
     process.exit(code);
+  };
+
+  // Register the broker-exit handler BEFORE spawning so an early broker crash
+  // is observed — this script runs as PID 1, so a missed exit hangs the container.
+  relay.onBrokerExit((info) => {
+    exit(typeof info?.code === 'number' ? info.code : 0);
   });
 
   const shutdown = async () => {
+    if (exiting) return;
     await relay.shutdown().catch(() => {});
-    process.exit(0);
+    exit(0);
   };
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
+
+  // If the agent fails to spawn, tear the broker down instead of leaking it.
+  try {
+    await relay.spawnPty({ name, cli, args, channels, task, cwd });
+  } catch (error) {
+    await relay.shutdown().catch(() => {});
+    throw error;
+  }
 }
 
 main().catch((error) => {

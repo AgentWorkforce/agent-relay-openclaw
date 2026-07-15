@@ -7,7 +7,7 @@ import { createServer } from 'node:net';
 import { fileURLToPath } from 'node:url';
 import { HarnessDriverClient } from '@agent-relay/harness-driver';
 
-import type { SpawnProvider, SpawnOptions, SpawnHandle } from './types.js';
+import { resolveWorkspaceKey, type SpawnProvider, type SpawnOptions, type SpawnHandle } from './types.js';
 import { normalizeModelRef } from '../identity/model.js';
 import { buildIdentityTask } from '../identity/contract.js';
 import { buildAgentName } from '../identity/naming.js';
@@ -60,10 +60,7 @@ export class ProcessSpawnProvider implements SpawnProvider {
     const agentName = buildAgentName(workspaceId, options.name);
     const channels = options.channels?.length ? options.channels : ['general'];
     const gatewayToken = randomUUID().replace(/-/g, '').slice(0, 32);
-    const workspaceKey = options.workspaceKey ?? options.relayApiKey;
-    if (!workspaceKey) {
-      throw new Error('workspaceKey is required to spawn an OpenClaw agent');
-    }
+    const workspaceKey = resolveWorkspaceKey(options);
 
     // Find a free port via OS allocation
     const port = await findFreePort();
