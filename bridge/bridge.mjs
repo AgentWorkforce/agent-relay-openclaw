@@ -3,7 +3,7 @@
 /**
  * bridge.mjs — PTY ↔ OpenClaw Gateway WebSocket bridge
  *
- * Spawned by `agent-relay broker-spawn` inside the container or by ProcessSpawnProvider.
+ * Spawned by the driver-managed bridge inside the container or by ProcessSpawnProvider.
  * Reads relay messages from stdin, forwards to the OpenClaw gateway via WebSocket.
  * Receives chat events from the gateway, writes responses to stdout.
  *

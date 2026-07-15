@@ -31,11 +31,11 @@ export interface GatewayTransportConfig {
 }
 
 export interface GatewayConfig {
-  /** Relaycast workspace API key (rk_live_*). */
+  /** Agent Relay workspace key (rk_live_*). */
   apiKey: string;
-  /** Name for this claw in the Relaycast workspace. */
+  /** Name for this claw in the Agent Relay workspace. */
   clawName: string;
-  /** Relaycast API base URL (default: https://api.relaycast.dev). */
+  /** Agent Relay workspace service base URL (default: https://api.relaycast.dev). */
   baseUrl: string;
   /** Channels to auto-join on connect. */
   channels: string[];

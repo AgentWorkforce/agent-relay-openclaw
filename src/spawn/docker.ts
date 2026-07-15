@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 
-import type { SpawnProvider, SpawnOptions, SpawnHandle } from './types.js';
+import { resolveWorkspaceKey, type SpawnProvider, type SpawnOptions, type SpawnHandle } from './types.js';
 import { normalizeModelRef } from '../identity/model.js';
 import { buildIdentityTask } from '../identity/contract.js';
 import { buildAgentName } from '../identity/naming.js';
@@ -51,7 +51,7 @@ export interface DockerSpawnProviderOptions {
   /**
    * Custom container command. If set, overrides the default entrypoint.
    * Use this for ClawRunner-managed images that have /opt/clawrunner/start-claw.sh.
-   * Default: uses @agent-relay/openclaw runtime-setup + openclaw gateway + agent-relay broker-spawn.
+   * Default: uses @agent-relay/openclaw runtime-setup, the OpenClaw gateway, and the driver-managed spawn bridge.
    */
   containerCmd?: string[];
 }
@@ -63,7 +63,7 @@ export interface DockerSpawnProviderOptions {
  * By default, the container runs:
  *   1. `npx @agent-relay/openclaw runtime-setup` — auth conversion, config, identity files, dist patching
  *   2. `openclaw gateway` in background
- *   3. `agent-relay broker-spawn --from-env` as PID 1
+ *   3. the driver-managed spawn bridge (`bridge/spawn-from-env.mjs`) as PID 1
  *
  * For ClawRunner-managed images, set containerCmd to ['/opt/clawrunner/start-claw.sh'].
  */
@@ -115,25 +115,27 @@ export class DockerSpawnProvider implements SpawnProvider {
   /**
    * Build the default container entrypoint script.
    * This script works with any vanilla OpenClaw image that has `openclaw` and `node` on PATH.
-   * It runs runtime-setup via the package CLI, starts the gateway, then hands off to broker-spawn.
+   * It runs runtime-setup via the package CLI, starts the gateway, then hands off to the
+   * driver-managed spawn bridge.
    */
   private buildEntrypointScript(gatewayPort: number): string[] {
-    // Shell script that runs setup, starts gateway, waits for health, then execs broker-spawn.
+    // Shell script that runs setup, starts gateway, waits for health, then execs the spawn bridge.
     // Uses sh -c so it works in minimal alpine images.
-    // Runtime setup via package CLI, then gateway, then SDK's spawnFromEnv()
-    // which handles broker + agent lifecycle without needing the agent-relay CLI.
+    // Runtime setup via package CLI, then gateway, then the driver-managed spawn-from-env bridge,
+    // which starts a broker + spawns the agent via PTY and waits for exit.
     const script = [
       'set -e',
       // Runtime setup: auth conversion, openclaw.json, identity files, dist patching
       'npx @agent-relay/openclaw runtime-setup',
-      // Resolve bridge.mjs from the installed package and symlink to the known AGENT_ARGS path.
+      // Resolve bridge.mjs + spawn-from-env.mjs from the installed package and symlink to known paths.
       // This handles any npm install location (global, local, npx cache).
       'node -e "' +
         "const p = require('path');" +
-        "const m = require('module');" +
-        "const r = m.createRequire(require.resolve('@agent-relay/openclaw/package.json'));" +
-        "const bp = p.join(p.dirname(require.resolve('@agent-relay/openclaw/package.json')), 'bridge', 'bridge.mjs');" +
+        "const dir = p.dirname(require.resolve('@agent-relay/openclaw/package.json'));" +
+        "const bp = p.join(dir, 'bridge', 'bridge.mjs');" +
+        "const sp = p.join(dir, 'bridge', 'spawn-from-env.mjs');" +
         "require('fs').symlinkSync(bp, '/tmp/openclaw-bridge.mjs');" +
+        "require('fs').symlinkSync(sp, '/tmp/openclaw-spawn-from-env.mjs');" +
         "console.log('[entrypoint] Bridge resolved: ' + bp);" +
         '"',
       // Start gateway in background
@@ -144,10 +146,9 @@ export class DockerSpawnProvider implements SpawnProvider {
       `  if [ "$i" -eq 30 ]; then echo "Gateway failed to start" >&2; exit 1; fi`,
       `  sleep 1`,
       `done`,
-      // Use SDK's spawnFromEnv() instead of shelling out to agent-relay CLI.
-      // This reads AGENT_NAME, AGENT_CLI, RELAY_API_KEY etc. from env,
-      // creates a broker internally, spawns the agent via PTY, and waits for exit.
-      `node -e "import('@agent-relay/sdk').then(m => m.spawnFromEnv())"`,
+      // Driver-managed spawn: reads AGENT_NAME, AGENT_CLI, RELAY_WORKSPACE_KEY etc. from env,
+      // starts a broker, spawns the agent via PTY, and waits for exit as PID 1.
+      `node /tmp/openclaw-spawn-from-env.mjs`,
     ].join('\n');
 
     return ['sh', '-c', script];
@@ -163,6 +164,7 @@ export class DockerSpawnProvider implements SpawnProvider {
     const identityTask = buildIdentityTask(agentName, workspaceId, modelRef);
     const channels = options.channels?.length ? options.channels : ['general'];
     const gatewayToken = randomUUID().replace(/-/g, '').slice(0, 32);
+    const workspaceKey = resolveWorkspaceKey(options);
 
     const suffix = `${Date.now().toString(36)}-${randomUUID().slice(0, 8)}`;
     const containerName = `openclaw-${sanitizeContainerSegment(agentName)}-${suffix}`.slice(0, 63);
@@ -184,7 +186,8 @@ export class DockerSpawnProvider implements SpawnProvider {
       // Bridge path: resolved dynamically inside the container via the entrypoint script.
       // The entrypoint writes the resolved path to /tmp/bridge-path.txt after runtime-setup.
       AGENT_ARGS: '/tmp/openclaw-bridge.mjs',
-      RELAY_API_KEY: options.relayApiKey,
+      RELAY_WORKSPACE_KEY: workspaceKey,
+      RELAY_API_KEY: workspaceKey,
       RELAY_BASE_URL: options.relayBaseUrl ?? '',
       AGENT_TASK: options.systemPrompt ? `${options.systemPrompt}\n\n${identityTask}` : identityTask,
       AGENT_CWD: '/workspace',

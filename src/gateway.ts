@@ -16,7 +16,7 @@ import {
 } from 'node:http';
 import { join } from 'node:path';
 
-import type { SendMessageInput } from '@agent-relay/sdk';
+import type { SendMessageInput } from '@agent-relay/harness-driver';
 import { RelayCast, type AgentClient } from '@relaycast/sdk';
 import type {
   MessageCreatedEvent,
@@ -41,8 +41,8 @@ import type { SpawnOptions } from './spawn/types.js';
 
 /**
  * A minimal interface for sending messages via Agent Relay.
- * Accepts either AgentRelayClient or AgentRelay — any object with a
- * compatible sendMessage() method.
+ * Accepts any object with a compatible sendMessage() method
+ * (e.g. HarnessDriverClient or a RelayCast agent client).
  */
 export interface RelaySender {
   sendMessage(input: SendMessageInput): Promise<{ event_id: string; targets?: string[] }>;
@@ -2269,10 +2269,10 @@ export class InboundGateway {
           return;
         }
 
-        const relayApiKey = this.config.apiKey;
+        const workspaceKey = this.config.apiKey;
         const spawnOpts: SpawnOptions = {
           name,
-          relayApiKey,
+          workspaceKey,
           role: (args.role as string) || undefined,
           model: (args.model as string) || undefined,
           channels: (args.channels as string[]) || undefined,

@@ -1,8 +1,10 @@
 export interface SpawnOptions {
   /** Display name for the new OpenClaw (e.g. "researcher"). */
   name: string;
-  /** Relay API key for Relaycast messaging. */
-  relayApiKey: string;
+  /** Agent Relay workspace key (rk_live_*) the spawned claw joins. */
+  workspaceKey?: string;
+  /** @deprecated Use workspaceKey. Kept as an alias for existing callers. */
+  relayApiKey?: string;
   /** Channels to auto-join. */
   channels?: string[];
   /** Agent role description. */
@@ -40,4 +42,17 @@ export interface SpawnProvider {
   spawn(options: SpawnOptions): Promise<SpawnHandle>;
   destroy(id: string): Promise<void>;
   list(): Promise<SpawnHandle[]>;
+}
+
+/**
+ * Resolve the workspace key from spawn options, accepting the deprecated
+ * `relayApiKey` alias. Throws when neither is present so both providers fail
+ * the same way instead of drifting.
+ */
+export function resolveWorkspaceKey(options: SpawnOptions): string {
+  const workspaceKey = options.workspaceKey ?? options.relayApiKey;
+  if (!workspaceKey) {
+    throw new Error('workspaceKey is required to spawn an OpenClaw agent');
+  }
+  return workspaceKey;
 }

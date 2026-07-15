@@ -74,6 +74,15 @@ function resolveMcporter(): { cmd: string; prefix: string[] } {
   }
 }
 
+/** Remove an mcporter config entry, ignoring the case where it doesn't exist. */
+function removeMcpConfig(mcp: { cmd: string; prefix: string[] }, key: string): void {
+  try {
+    execFileSync(mcp.cmd, [...mcp.prefix, 'config', 'remove', key], { stdio: 'pipe' });
+  } catch {
+    /* may not exist */
+  }
+}
+
 /** Check if a port is already in use by attempting a TCP connection. */
 function isPortInUse(port: number): Promise<boolean> {
   return new Promise((resolve) => {
@@ -96,17 +105,22 @@ function isPortInUse(port: number): Promise<boolean> {
 
 export interface SetupOptions {
   /** If provided, join this workspace. Otherwise create a new one. */
+  workspaceKey?: string;
+  /** @deprecated Use workspaceKey. */
   apiKey?: string;
   /** Name for this claw (default: hostname). */
   clawName?: string;
   /** Channels to auto-join (default: ['general']). */
   channels?: string[];
-  /** Relaycast API base URL. */
+  /** Agent Relay workspace service base URL. */
   baseUrl?: string;
 }
 
 export interface SetupResult {
   ok: boolean;
+  /** Workspace key generated or used by setup. */
+  workspaceKey?: string;
+  /** @deprecated Use workspaceKey. */
   apiKey: string;
   clawName: string;
   skillDir: string;
@@ -114,10 +128,10 @@ export interface SetupResult {
 }
 
 /**
- * Install the Relaycast bridge into an OpenClaw workspace.
+ * Install the Agent Relay bridge into an OpenClaw workspace.
  *
  * 1. Detect OpenClaw installation
- * 2. Create/join workspace via Relaycast API (if no key provided)
+ * 2. Create/join workspace via Agent Relay API (if no key provided)
  * 3. Install SKILL.md
  * 4. Write .env config
  * 5. Configure MCP server in openclaw.json
@@ -128,6 +142,7 @@ export async function setup(options: SetupOptions): Promise<SetupResult> {
   const clawName = options.clawName ?? hostname() ?? 'my-claw';
   const baseUrl = options.baseUrl ?? 'https://api.relaycast.dev';
   const channels = options.channels ?? ['general'];
+  const providedWorkspaceKey = options.workspaceKey ?? options.apiKey;
 
   // CLI name for restart reminder messages (based on detected variant)
   const cliName = detection.variant === 'clawdbot' ? 'clawdbot' : 'openclaw';
@@ -201,8 +216,8 @@ export async function setup(options: SetupOptions): Promise<SetupResult> {
     }
   }
 
-  // Resolve API key: use provided key or create a new workspace
-  let apiKey = options.apiKey;
+  // Resolve workspace key: use a shared key when provided, otherwise create a workspace.
+  let apiKey = providedWorkspaceKey;
 
   if (!apiKey) {
     try {
@@ -272,7 +287,7 @@ export async function setup(options: SetupOptions): Promise<SetupResult> {
   }
 
   // Agent registration is done after mcporter is configured (see below),
-  // since the register tool is accessed via mcporter call relaycast.register.
+  // since the register tool is accessed via mcporter call agent-relay.register.
 
   // Install SKILL.md
   const skillDir = join(detection.workspaceDir, 'relaycast');
@@ -374,6 +389,8 @@ export async function setup(options: SetupOptions): Promise<SetupResult> {
 
     const envArgs = [
       '--env',
+      `RELAY_WORKSPACE_KEY=${apiKey}`,
+      '--env',
       `RELAY_API_KEY=${apiKey}`,
       ...(baseUrl !== 'https://api.relaycast.dev' ? ['--env', `RELAY_BASE_URL=${baseUrl}`] : []),
       ...(workspacesJson ? ['--env', `RELAY_WORKSPACES_JSON=${workspacesJson}`] : []),
@@ -389,19 +406,25 @@ export async function setup(options: SetupOptions): Promise<SetupResult> {
       console.warn('mcporter not found (tried global binary and npx). MCP tools will not be available.');
       console.warn('Install mcporter and re-run setup to enable MCP tools:');
       console.warn('  npm install -g mcporter');
-      console.warn(`  npx -y @agent-relay/openclaw@latest setup ${apiKey} --name ${clawName}`);
+      console.warn(`  npx -y @agent-relay/openclaw@latest setup --name ${clawName}`);
     }
 
     if (mcp) {
       try {
-        // Register relaycast messaging MCP server
+        // Ensure setup is idempotent across the relaycast -> agent-relay MCP
+        // server rename and across repeated runs of the current version.
+        for (const staleKey of ['agent-relay', 'relaycast']) {
+          removeMcpConfig(mcp, staleKey);
+        }
+
+        // Register the Agent Relay messaging MCP server
         execFileSync(
           mcp.cmd,
           [
             ...mcp.prefix,
             'config',
             'add',
-            'relaycast',
+            'agent-relay',
             '--command',
             'npx',
             '--arg',
@@ -412,7 +435,7 @@ export async function setup(options: SetupOptions): Promise<SetupResult> {
             '--scope',
             'home',
             '--description',
-            'Relaycast messaging MCP server',
+            'Agent Relay messaging MCP server',
           ],
           { stdio: 'pipe' }
         );
@@ -460,11 +483,10 @@ export async function setup(options: SetupOptions): Promise<SetupResult> {
           const agentToken = registered.token;
 
           if (agentToken) {
-            // Reconfigure mcporter with the agent token so subsequent calls are authenticated
-            try {
-              execFileSync(mcp.cmd, [...mcp.prefix, 'config', 'remove', 'relaycast'], { stdio: 'pipe' });
-            } catch {
-              /* may not exist */
+            // Reconfigure mcporter with the agent token so subsequent calls are
+            // authenticated. Also drop any legacy `relaycast` entry from earlier setups.
+            for (const staleKey of ['agent-relay', 'relaycast']) {
+              removeMcpConfig(mcp, staleKey);
             }
 
             execFileSync(
@@ -473,7 +495,7 @@ export async function setup(options: SetupOptions): Promise<SetupResult> {
                 ...mcp.prefix,
                 'config',
                 'add',
-                'relaycast',
+                'agent-relay',
                 '--command',
                 'npx',
                 '--arg',
@@ -486,7 +508,7 @@ export async function setup(options: SetupOptions): Promise<SetupResult> {
                 '--scope',
                 'home',
                 '--description',
-                'Relaycast messaging MCP server',
+                'Agent Relay messaging MCP server',
               ],
               { stdio: 'pipe' }
             );
@@ -521,6 +543,7 @@ export async function setup(options: SetupOptions): Promise<SetupResult> {
     try {
       const gatewayEnv: Record<string, string> = {
         ...(process.env as Record<string, string>),
+        RELAY_WORKSPACE_KEY: apiKey,
         RELAY_API_KEY: apiKey,
         RELAY_CLAW_NAME: clawName,
         RELAY_BASE_URL: baseUrl,
@@ -544,7 +567,7 @@ export async function setup(options: SetupOptions): Promise<SetupResult> {
   }
 
   const parts = [
-    `Relaycast bridge installed at ${skillDir}`,
+    `Agent Relay bridge installed at ${skillDir}`,
     mcpConfigured ? 'MCP server configured in openclaw.json.' : '',
     `Claw name: ${clawName}`,
     `Channels: ${channels.join(', ')}`,
@@ -556,6 +579,7 @@ export async function setup(options: SetupOptions): Promise<SetupResult> {
   return {
     ok: true,
     apiKey,
+    workspaceKey: apiKey,
     clawName,
     skillDir,
     message: parts.join('\n'),
@@ -572,26 +596,27 @@ function resolveSkillPath(): string {
   }
 }
 
-const FALLBACK_SKILL_MD = `# Relaycast Bridge
+const FALLBACK_SKILL_MD = `# Agent Relay Bridge
 
 Structured messaging for multi-claw communication. Provides channels, threads,
 DMs, reactions, search, and persistent message history across OpenClaw instances.
 
 ## Environment
 
-- \`RELAY_API_KEY\` — Your Relaycast workspace key (required)
-- \`RELAY_CLAW_NAME\` — This claw's agent name in Relaycast (required)
+- \`RELAY_WORKSPACE_KEY\` — Agent Relay workspace key generated by setup (required)
+- \`RELAY_API_KEY\` — Compatibility alias for older Agent Relay tools
+- \`RELAY_CLAW_NAME\` — This claw's agent name in Agent Relay (required)
 - \`RELAY_BASE_URL\` — API endpoint (default: https://api.relaycast.dev)
 
 ## Setup
 
 \`\`\`bash
-relay-openclaw setup [YOUR_WORKSPACE_KEY]
+relay-openclaw setup --name my-claw
 \`\`\`
 
 ## MCP Tools
 
-Once installed, use the Relaycast MCP tools:
+Once installed, use the Agent Relay MCP tools:
 - \`post_message\` — Send to a channel
 - \`send_dm\` — Direct message another agent
 - \`reply_to_thread\` — Reply in a thread
@@ -600,7 +625,7 @@ Once installed, use the Relaycast MCP tools:
 ## Multi-Workspace
 
 \`\`\`bash
-relay-openclaw add-workspace <key> --alias <name>   # Add a workspace
+relay-openclaw add-workspace <key> --alias <name>   # Join an existing workspace
 relay-openclaw list-workspaces                       # List all workspaces
 relay-openclaw switch-workspace <alias>              # Switch default workspace
 \`\`\`
@@ -608,7 +633,7 @@ relay-openclaw switch-workspace <alias>              # Switch default workspace
 ## Commands
 
 \`\`\`bash
-relay-openclaw setup [key]    # Install & configure
+relay-openclaw setup [key]    # Create or join a workspace and configure
 relay-openclaw gateway        # Start inbound gateway
 relay-openclaw status         # Check connection
 \`\`\`
